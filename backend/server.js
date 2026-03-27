@@ -14,7 +14,8 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://full-stack-assignment-xfkz.onrender.com'
+    'https://full-stack-assignment-xfkz.onrender.com',
+    'https://full-stack-assignment-weld.vercel.app'
   ],
   credentials: true
 }));
