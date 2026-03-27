@@ -4,12 +4,13 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
+import { errorHandler, notFound } from './utils/errorHandler.js';
 
 dotenv.config();
 
 const app = express();
 
-
+// Middleware
 app.use(express.json());
 app.use(cors({
   origin: [
@@ -24,12 +25,29 @@ app.use(cookieParser());
 // Routes
 app.use('/', authRoutes);
 
+// 404 handler
+app.use(notFound);
+
+// Error handler
+app.use(errorHandler);
+
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+    process.exit(1);
+  });
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing server...');
+  mongoose.connection.close();
+  process.exit(0);
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
