@@ -340,3 +340,38 @@ Created as part of a full-stack development assignment.
 
 - Frontend: https://full-stack-assignment-weld.vercel.app
 - Backend: https://full-stack-assignment-xfkz.onrender.com
+
+
+## 🔐 Environment Variables Setup
+
+### Backend Environment Variables
+
+For **local development** (backend/.env):
+```env
+MONGODB_URI=your-mongodb-connection-string
+JWT_SECRET=your-secret-key
+PORT=5000
+NODE_ENV=development
+```
+
+For **production deployment on Render**, add these environment variables:
+```env
+MONGODB_URI=your-mongodb-connection-string
+JWT_SECRET=your-secret-key
+PORT=5000
+NODE_ENV=production
+```
+
+**Important**: Setting `NODE_ENV=production` on Render enables:
+- Secure cookies (HTTPS only)
+- Cross-origin cookie support (sameSite: 'none')
+- Production-optimized settings
+
+### Frontend Environment Variables
+
+For **production deployment on Vercel**, add:
+```env
+VITE_API_URL=https://your-backend-url.onrender.com
+```
+
+This ensures your frontend connects to the correct backend API in production.

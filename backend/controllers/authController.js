@@ -68,10 +68,15 @@ export const login = async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // Set httpOnly cookie with environment-based settings
     res.cookie('token', token, {
       httpOnly: true,
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      secure: isProduction, // Only HTTPS in production
+      sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin in production
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/'
     });
 
     res.json({ success: true, name: user.name });
@@ -81,7 +86,14 @@ export const login = async (req, res) => {
 };
 
 export const logout = (req, res) => {
-  res.clearCookie('token');
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    path: '/'
+  });
   res.json({ success: true, message: 'Logged out successfully' });
 };
 
