@@ -276,3 +276,67 @@ Created as part of a full-stack development assignment.
 
 **Note**: This application is for demonstration purposes. For production use, additional security measures and optimizations should be implemented.
 
+
+
+## 🚀 Deployment Guide
+
+### Backend Deployment (Render)
+
+1. **Create a new Web Service on Render**
+   - Connect your GitHub repository
+   - Select the `backend` folder as root directory
+   - Build Command: `npm install`
+   - Start Command: `npm start`
+
+2. **Add Environment Variables on Render**
+   ```
+   MONGODB_URI=your-mongodb-connection-string
+   JWT_SECRET=your-secret-key
+   PORT=5000
+   ```
+
+3. **Get your Render backend URL**
+   - Example: `https://your-app.onrender.com`
+
+### Frontend Deployment (Vercel)
+
+1. **Deploy to Vercel**
+   - Connect your GitHub repository
+   - Select the `frontend` folder as root directory
+   - Framework Preset: Vite
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+
+2. **Add Environment Variable on Vercel**
+   - Go to Project Settings → Environment Variables
+   - Add: `VITE_API_URL` = `https://your-backend.onrender.com`
+
+3. **Redeploy**
+   - After adding the environment variable, trigger a new deployment
+
+### Important Notes
+
+- The `vercel.json` file ensures React Router works correctly on Vercel
+- Make sure your backend URL is added to CORS origins in `backend/server.js`
+- Environment variables must be set on both platforms
+- Render free tier may have cold starts (first request might be slow)
+
+### Troubleshooting
+
+**404 Error on Vercel:**
+- Ensure `vercel.json` is in the frontend root
+- Redeploy after adding the file
+
+**CORS Error:**
+- Check that your Vercel URL is in the CORS origins array in `backend/server.js`
+- Redeploy backend after updating CORS
+
+**API Connection Error:**
+- Verify `VITE_API_URL` environment variable is set on Vercel
+- Check that backend is running on Render
+- Ensure MongoDB connection string is correct
+
+### Current Deployment URLs
+
+- Frontend: https://full-stack-assignment-weld.vercel.app
+- Backend: https://full-stack-assignment-xfkz.onrender.com
