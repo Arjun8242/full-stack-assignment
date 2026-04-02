@@ -227,6 +227,23 @@ body {
   background: #fff;
 }
 
+.task-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: #667eea;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.link-btn.danger {
+  color: #d32f2f;
+}
+
 /* Status Badges */
 .status, .priority, .user-status {
   padding: 4px 10px;

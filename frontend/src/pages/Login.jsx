@@ -33,11 +33,11 @@ function Login() {
 
     setLoading(true);
     try {
-      const { data } = await api.post('/login', formData);
+      const { data } = await api.post('/auth/login', formData);
 
       if (data.success) {
-        localStorage.setItem('userName', data.name);
-        toast.success(`Welcome back, ${data.name}!`);
+        localStorage.setItem('userName', data.user?.name || data.user?.email || 'User');
+        toast.success(`Welcome back, ${data.user?.name || data.user?.email || 'User'}!`);
         navigate('/dashboard');
       } else {
         toast.error(data.message);

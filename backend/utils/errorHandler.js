@@ -1,6 +1,16 @@
+import { AppError } from './appError.js';
+
 // Global error handler middleware
 export const errorHandler = (err, req, res, next) => {
   console.error('Error:', err);
+
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+      errors: err.errors || undefined
+    });
+  }
 
   // Mongoose validation error
   if (err.name === 'ValidationError') {
@@ -19,6 +29,14 @@ export const errorHandler = (err, req, res, next) => {
     });
   }
 
+  // Mongoose cast error
+  if (err.name === 'CastError') {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid resource id'
+    });
+  }
+
   // JWT errors
   if (err.name === 'JsonWebTokenError') {
     return res.status(401).json({
@@ -31,6 +49,14 @@ export const errorHandler = (err, req, res, next) => {
     return res.status(401).json({
       success: false,
       message: 'Token expired'
+    });
+  }
+
+  // PostgreSQL unique violation
+  if (err.code === '23505') {
+    return res.status(400).json({
+      success: false,
+      message: 'Duplicate value violates a unique constraint'
     });
   }
 

@@ -1,93 +1,91 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
+import { createUser, findUserByEmail, findUserById } from '../repositories/userRepository.js';
+import { AppError } from '../utils/appError.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
-export const signup = async (req, res, next) => {
-  try {
-    const { name, email, password } = req.body;
+const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
-    // Validation
-    if (!name || !email || !password) {
-      return res.status(400).json({ success: false, message: 'All fields are required' });
-    }
+const buildToken = (user) => jwt.sign(
+  { id: user.id, email: user.email, name: user.name ?? null },
+  process.env.JWT_SECRET,
+  { expiresIn: '7d' }
+);
 
-    // Email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ success: false, message: 'Invalid email format' });
-    }
+const setAuthCookie = (res, token) => {
+  const isProduction = process.env.NODE_ENV === 'production';
 
-    // Password length validation
-    if (password.length < 6) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
-    }
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ success: false, message: 'Email already exists' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ name, email, password: hashedPassword });
-    await user.save();
-
-    res.status(201).json({ success: true, message: 'User created successfully' });
-  } catch (error) {
-    next(error);
-  }
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: COOKIE_MAX_AGE,
+    path: '/'
+  });
 };
 
-export const login = async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
+export const register = asyncHandler(async (req, res) => {
+  const { email, password, name } = req.body;
+  const normalizedEmail = email.toLowerCase();
 
-    // Validation
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'All fields are required' });
-    }
-
-    // Email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ success: false, message: 'Invalid email format' });
-    }
-
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ success: false, message: 'Invalid credentials' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ success: false, message: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign(
-      { id: user._id, name: user.name },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    const isProduction = process.env.NODE_ENV === 'production';
-
-    // Set httpOnly cookie with environment-based settings
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: isProduction, // Only HTTPS in production
-      sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin in production
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/'
-    });
-
-    res.json({ success: true, name: user.name });
-  } catch (error) {
-    next(error);
+  const existingUser = await findUserByEmail(normalizedEmail);
+  if (existingUser) {
+    throw new AppError('Email already exists', 400);
   }
-};
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const createdUser = await createUser({
+    name: name?.trim() || null,
+    email: normalizedEmail,
+    passwordHash
+  });
+
+  const token = buildToken(createdUser);
+  setAuthCookie(res, token);
+
+  res.status(201).json({
+    success: true,
+    message: 'User registered successfully',
+    token,
+    user: {
+      id: createdUser.id,
+      email: createdUser.email,
+      name: createdUser.name
+    }
+  });
+});
+
+export const login = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+  const normalizedEmail = email.toLowerCase();
+
+  const user = await findUserByEmail(normalizedEmail);
+  if (!user) {
+    throw new AppError('Invalid credentials', 401);
+  }
+
+  const isMatch = await bcrypt.compare(password, user.passwordHash);
+  if (!isMatch) {
+    throw new AppError('Invalid credentials', 401);
+  }
+
+  const token = buildToken(user);
+  setAuthCookie(res, token);
+
+  res.json({
+    success: true,
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name
+    }
+  });
+});
 
 export const logout = (req, res) => {
   const isProduction = process.env.NODE_ENV === 'production';
-  
+
   res.clearCookie('token', {
     httpOnly: true,
     secure: isProduction,
@@ -97,30 +95,18 @@ export const logout = (req, res) => {
   res.json({ success: true, message: 'Logged out successfully' });
 };
 
-export const getDashboard = (req, res) => {
-  const dummyData = {
-    leads: [
-      { id: 1, name: 'John Doe', email: 'john@example.com', status: 'New', value: '$5,000' },
-      { id: 2, name: 'Jane Smith', email: 'jane@example.com', status: 'Contacted', value: '$8,500' },
-      { id: 3, name: 'Mike Johnson', email: 'mike@example.com', status: 'Qualified', value: '$12,000' },
-      { id: 4, name: 'Sarah Williams', email: 'sarah@example.com', status: 'Negotiation', value: '$15,000' }
-    ],
-    tasks: [
-      { id: 1, title: 'Follow up with client', priority: 'High', dueDate: '2024-03-28', status: 'Pending' },
-      { id: 2, title: 'Prepare presentation', priority: 'Medium', dueDate: '2024-03-29', status: 'In Progress' },
-      { id: 3, title: 'Review contract', priority: 'High', dueDate: '2024-03-27', status: 'Completed' },
-      { id: 4, title: 'Send proposal', priority: 'Low', dueDate: '2024-03-30', status: 'Pending' }
-    ],
-    users: [
-      { id: 1, name: 'Alice Brown', role: 'Sales Manager', email: 'alice@company.com', status: 'Active' },
-      { id: 2, name: 'Bob Wilson', role: 'Developer', email: 'bob@company.com', status: 'Active' },
-      { id: 3, name: 'Carol Davis', role: 'Designer', email: 'carol@company.com', status: 'Active' },
-      { id: 4, name: 'David Lee', role: 'Marketing', email: 'david@company.com', status: 'Inactive' }
-    ]
-  };
+export const profile = asyncHandler(async (req, res) => {
+  const user = await findUserById(req.user.id);
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
 
   res.json({
-    message: `Welcome ${req.user.name}`,
-    data: dummyData
+    success: true,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name
+    }
   });
-};
+});

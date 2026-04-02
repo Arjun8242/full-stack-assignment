@@ -2,31 +2,125 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import Card from '../components/Card';
+import Input from '../components/Input';
 import Button from '../components/Button';
 import api from '../api/axios';
 
 function Dashboard() {
-  const [dashboardData, setDashboardData] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [newTitle, setNewTitle] = useState('');
+  const [newDescription, setNewDescription] = useState('');
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchDashboard();
+    fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchDashboard = async () => {
+  const fetchData = async () => {
     try {
-      const { data } = await api.get('/dashboard');
-      setDashboardData(data);
+      const [profileRes, tasksRes] = await Promise.all([
+        api.get('/auth/profile'),
+        api.get('/tasks')
+      ]);
+
+      setProfile(profileRes.data.user);
+      setTasks(tasksRes.data.tasks || []);
     } catch (err) {
-      toast.error('Failed to load dashboard');
+      toast.error(err.response?.data?.message || 'Failed to load dashboard');
       navigate('/login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateTask = async (e) => {
+    e.preventDefault();
+
+    if (!newTitle.trim()) {
+      toast.error('Title is required');
+      return;
+    }
+
+    try {
+      await api.post('/tasks', {
+        title: newTitle.trim(),
+        description: newDescription.trim()
+      });
+      setNewTitle('');
+      setNewDescription('');
+      toast.success('Task created');
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create task');
+    }
+  };
+
+  const handleToggleTask = async (task) => {
+    try {
+      await api.patch(`/tasks/${task.id}`, {
+        status: task.status === 'completed' ? 'pending' : 'completed'
+      });
+      toast.success('Task updated');
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update task');
+    }
+  };
+
+  const startEditingTask = (task) => {
+    setEditingTaskId(task.id);
+    setEditTitle(task.title || '');
+    setEditDescription(task.description || '');
+  };
+
+  const cancelEditingTask = () => {
+    setEditingTaskId(null);
+    setEditTitle('');
+    setEditDescription('');
+  };
+
+  const handleSaveTask = async (taskId) => {
+    const title = editTitle.trim();
+    const description = editDescription.trim();
+
+    if (!title) {
+      toast.error('Title is required');
+      return;
+    }
+
+    try {
+      await api.patch(`/tasks/${taskId}`, {
+        title,
+        description
+      });
+
+      toast.success('Task updated');
+      cancelEditingTask();
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update task');
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    try {
+      await api.delete(`/tasks/${taskId}`);
+      toast.success('Task deleted');
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete task');
     }
   };
 
   const handleLogout = async () => {
     try {
-      await api.post('/logout');
+      await api.post('/auth/logout');
       localStorage.removeItem('userName');
       toast.success('Logged out successfully');
       navigate('/login');
@@ -35,75 +129,123 @@ function Dashboard() {
     }
   };
 
-  if (!dashboardData) return <div>Loading...</div>;
+  if (loading) return <div>Loading...</div>;
 
   return (
     <Card large>
       <div className="dashboard-header">
-        <h2 className="welcome-text">{dashboardData.message}</h2>
+        <h2 className="welcome-text">
+          Welcome, {profile?.name || profile?.email || 'User'}
+        </h2>
         <Button variant="danger" onClick={handleLogout}>Logout</Button>
       </div>
 
-      {/* Leads Section */}
       <div className="dashboard-section">
-        <h3 className="section-title">Leads</h3>
-        <div className="data-table">
-          <div className="table-header">
-            <span>Name</span>
-            <span>Email</span>
-            <span>Status</span>
-            <span>Value</span>
-          </div>
-          {dashboardData.data.leads.map((lead) => (
-            <div key={lead.id} className="table-row">
-              <span>{lead.name}</span>
-              <span>{lead.email}</span>
-              <span className={`status status-${lead.status.toLowerCase()}`}>{lead.status}</span>
-              <span>{lead.value}</span>
-            </div>
-          ))}
-        </div>
+        <h3 className="section-title">Create Task</h3>
+        <form onSubmit={handleCreateTask}>
+          <Input
+            label="Title"
+            name="title"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+          />
+          <Input
+            label="Description"
+            name="description"
+            value={newDescription}
+            onChange={(e) => setNewDescription(e.target.value)}
+          />
+          <Button type="submit">Add Task</Button>
+        </form>
       </div>
 
-      {/* Tasks Section */}
       <div className="dashboard-section">
         <h3 className="section-title">Tasks</h3>
         <div className="data-table">
           <div className="table-header">
             <span>Title</span>
-            <span>Priority</span>
-            <span>Due Date</span>
+            <span>Description</span>
             <span>Status</span>
+            <span>Actions</span>
           </div>
-          {dashboardData.data.tasks.map((task) => (
+          {tasks.map((task) => (
             <div key={task.id} className="table-row">
-              <span>{task.title}</span>
-              <span className={`priority priority-${task.priority.toLowerCase()}`}>{task.priority}</span>
-              <span>{task.dueDate}</span>
+              {editingTaskId === task.id ? (
+                <>
+                  <input
+                    className="input"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    placeholder="Task title"
+                  />
+                  <input
+                    className="input"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    placeholder="Task description"
+                  />
+                </>
+              ) : (
+                <>
+                  <span>{task.title}</span>
+                  <span>{task.description || '-'}</span>
+                </>
+              )}
               <span>{task.status}</span>
+              <span className="task-actions">
+                {editingTaskId === task.id ? (
+                  <>
+                    <button
+                      className="link-btn"
+                      onClick={() => handleSaveTask(task.id)}
+                      type="button"
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="link-btn"
+                      onClick={cancelEditingTask}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="link-btn"
+                      onClick={() => startEditingTask(task)}
+                      type="button"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="link-btn"
+                      onClick={() => handleToggleTask(task)}
+                      type="button"
+                    >
+                      Toggle
+                    </button>
+                  </>
+                )}
+                <button
+                  className="link-btn danger"
+                  onClick={() => handleDeleteTask(task.id)}
+                  type="button"
+                >
+                  Delete
+                </button>
+              </span>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* Users Section */}
-      <div className="dashboard-section">
-        <h3 className="section-title">Users</h3>
-        <div className="data-table">
-          <div className="table-header">
-            <span>Name</span>
-            <span>Role</span>
-            <span>Email</span>
-            <span>Status</span>
-          </div>
-          {dashboardData.data.users.map((user) => (
-            <div key={user.id} className="table-row">
-              <span>{user.name}</span>
-              <span>{user.role}</span>
-              <span>{user.email}</span>
-              <span className={`user-status user-status-${user.status.toLowerCase()}`}>{user.status}</span>
+          {!tasks.length && (
+            <div className="table-row">
+              <span>No tasks yet</span>
+              <span>-</span>
+              <span>-</span>
+              <span>-</span>
             </div>
-          ))}
+          )}
         </div>
       </div>
     </Card>

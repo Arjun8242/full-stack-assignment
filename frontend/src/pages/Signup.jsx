@@ -38,11 +38,12 @@ function Signup() {
 
     setLoading(true);
     try {
-      const { data } = await api.post('/signup', formData);
+      const { data } = await api.post('/auth/register', formData);
 
       if (data.success) {
-        toast.success('Account created successfully! Please login.');
-        navigate('/login');
+        localStorage.setItem('userName', data.user?.name || data.user?.email || 'User');
+        toast.success(`Welcome, ${data.user?.name || data.user?.email || 'User'}!`);
+        navigate('/dashboard');
       } else {
         toast.error(data.message);
       }
