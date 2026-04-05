@@ -1,10 +1,11 @@
-# Assignment App
+# Assignment App — Extended Task Management API
 
 Full-stack task management application with:
 - Frontend: React + Vite
 - Backend: Node.js + Express
 - Auth/User store: PostgreSQL
 - Task store: MongoDB
+- Message Queue: BullMQ (Redis)
 
 ## 1. Local Setup And Run
 
@@ -13,6 +14,7 @@ Full-stack task management application with:
 - npm 9+
 - MongoDB (local or cloud connection string)
 - PostgreSQL 13+
+- Docker (recommended, for Redis) — or a standalone Redis 6+
 
 ## Clone And Install
 From the project root:
@@ -24,6 +26,19 @@ npm install
 cd ../frontend
 npm install
 ```
+
+## Start Redis (for BullMQ)
+
+Using Docker (recommended):
+
+```bash
+# From the project root
+docker compose up -d
+```
+
+This starts a Redis container on `localhost:6379`.
+
+Or, if you already have Redis installed locally, ensure it is running on port 6379.
 
 ## Database Setup
 
@@ -61,11 +76,23 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=assignment_app
 POSTGRES_SSL=false
+
+# Redis for BullMQ
+REDIS_URL=redis://127.0.0.1:6379
+
+# Completion webhook — POST request on task completion
+# Leave blank to disable; set to e.g. https://webhook.site/<your-uuid>
+WEBHOOK_URL=
+
+# Reminder webhook — POST request 1 hour before due date
+# Leave blank for console-only logging
+REMINDER_WEBHOOK_URL=
 ```
 
 Notes:
 - Use either `POSTGRES_URI` OR the individual `POSTGRES_*` variables.
 - If `POSTGRES_SSL=true`, backend uses TLS with `rejectUnauthorized: false`.
+- `WEBHOOK_URL` and `REMINDER_WEBHOOK_URL` are optional; when blank the respective feature only logs to console.
 
 ## Run Backend
 
@@ -98,6 +125,9 @@ Collection variables:
 - `baseUrl` = `http://localhost:5000/api/v1`
 - `token` (auto-filled by Login test)
 - `taskId` (auto-filled by Create Task test)
+- `categoryId` (auto-filled by Create Category test)
+
+---
 
 ## 2. API Documentation
 
@@ -131,6 +161,8 @@ Error response shape:
   ]
 }
 ```
+
+---
 
 ## Auth Endpoints
 
@@ -239,16 +271,20 @@ Possible errors:
 - `401` not authenticated / invalid token
 - `404` user not found
 
+---
+
 ## Task Endpoints
 All task endpoints require auth.
 
 Task schema:
-- `id` (string)
-- `ownerId` (number, internal linkage to auth user)
+- `id` (string) — Mongo ObjectId
+- `ownerId` (number) — linkage to auth user
 - `title` (string, required, max 200)
 - `description` (string, optional, max 2000)
 - `dueDate` (ISO date or null)
 - `status` (`pending` | `completed`)
+- `category` (string or null) — name of a category
+- `tags` (array of strings) — free-form text tags
 - `createdAt`, `updatedAt`
 
 ### POST /tasks
@@ -261,9 +297,23 @@ Request body:
   "title": "Finish assignment",
   "description": "Create docs",
   "dueDate": "2026-12-31T00:00:00.000Z",
-  "status": "pending"
+  "status": "pending",
+  "category": "Work",
+  "tags": ["High Priority", "Client A"]
 }
 ```
+
+Validation:
+- `title`: required, max 200 chars
+- `description`: optional, max 2000 chars
+- `dueDate`: optional ISO 8601 date (nullable)
+- `status`: optional, `pending` or `completed` (default: `pending`)
+- `category`: optional string (max 100 chars, nullable)
+- `tags`: optional array of strings (each max 100 chars)
+
+**Side-effects:**
+- If `dueDate` is provided, a BullMQ reminder job is scheduled (fires 1 hour before due).
+- If `status` is `completed`, the completion webhook fires immediately (if `WEBHOOK_URL` is configured).
 
 Success `201`:
 
@@ -277,6 +327,8 @@ Success `201`:
     "description": "Create docs",
     "dueDate": "2026-12-31T00:00:00.000Z",
     "status": "pending",
+    "category": "Work",
+    "tags": ["High Priority", "Client A"],
     "createdAt": "2026-04-02T10:00:00.000Z",
     "updatedAt": "2026-04-02T10:00:00.000Z"
   }
@@ -288,25 +340,21 @@ Possible errors:
 - `401` auth missing/invalid
 
 ### GET /tasks
-List all tasks for current user.
+List all tasks for current user, with optional filtering.
+
+Query parameters (all optional):
+- `category` — filter by exact category name (e.g. `?category=Work`)
+- `tags` — filter by tags. Comma-separated string or repeated params.
+  - `?tags=High Priority,Client A` — tasks that contain **all** specified tags
+  - `?tags[]=High Priority&tags[]=Client A` — same
 
 Success `200`:
 
 ```json
 {
   "success": true,
-  "tasks": [
-    {
-      "id": "67f01a7ec8d4f22c9768f6f6",
-      "ownerId": 1,
-      "title": "Finish assignment",
-      "description": "Create docs",
-      "dueDate": null,
-      "status": "pending",
-      "createdAt": "2026-04-02T10:00:00.000Z",
-      "updatedAt": "2026-04-02T10:00:00.000Z"
-    }
-  ]
+  "count": 2,
+  "tasks": [ ... ]
 }
 ```
 
@@ -321,16 +369,7 @@ Success `200`:
 ```json
 {
   "success": true,
-  "task": {
-    "id": "67f01a7ec8d4f22c9768f6f6",
-    "ownerId": 1,
-    "title": "Finish assignment",
-    "description": "Create docs",
-    "dueDate": null,
-    "status": "pending",
-    "createdAt": "2026-04-02T10:00:00.000Z",
-    "updatedAt": "2026-04-02T10:00:00.000Z"
-  }
+  "task": { ... }
 }
 ```
 
@@ -351,29 +390,30 @@ Request body (any subset, at least one field):
   "title": "Finish assignment (updated)",
   "description": "Updated description",
   "dueDate": null,
-  "status": "completed"
+  "status": "completed",
+  "category": "Personal",
+  "tags": ["Done"]
 }
 ```
 
 Validation:
 - Must include at least one updatable field
-- Allowed fields: `title`, `description`, `dueDate`, `status`
+- Allowed fields: `title`, `description`, `dueDate`, `status`, `category`, `tags`
+
+**Side-effects:**
+- If `status` changed to `completed`:
+  - Cancels any pending BullMQ reminder for this task
+  - Fires the completion webhook (POST to `WEBHOOK_URL` with task details and retry logic)
+- If `dueDate` changed:
+  - Cancels old reminder and schedules a new one (or cancels if `dueDate` set to null)
+- If task was already `completed`, no webhook is re-fired on further updates
 
 Success `200`:
 
 ```json
 {
   "success": true,
-  "task": {
-    "id": "67f01a7ec8d4f22c9768f6f6",
-    "ownerId": 1,
-    "title": "Finish assignment (updated)",
-    "description": "Updated description",
-    "dueDate": null,
-    "status": "completed",
-    "createdAt": "2026-04-02T10:00:00.000Z",
-    "updatedAt": "2026-04-02T11:00:00.000Z"
-  }
+  "task": { ... }
 }
 ```
 
@@ -383,6 +423,9 @@ Possible errors:
 
 ### DELETE /tasks/:id
 Delete task owned by current user.
+
+**Side-effects:**
+- Cancels any pending BullMQ reminder for the deleted task
 
 Success `200`:
 
@@ -397,7 +440,169 @@ Possible errors:
 - `400` invalid task id
 - `404` task not found (including other-user task)
 
-## 3. Quick Curl Examples
+---
+
+## Category Endpoints
+All category endpoints require auth.
+
+Category schema:
+- `id` (string) — Mongo ObjectId
+- `name` (string, required, max 100)
+- `ownerId` (number or null) — null for system defaults
+- `isDefault` (boolean) — true for system defaults
+- `createdAt`, `updatedAt`
+
+System default categories (seeded on startup):
+- **Work**
+- **Personal**
+- **Urgent**
+
+### POST /categories
+Create a custom category for the current user.
+
+Request body:
+
+```json
+{
+  "name": "Side Projects"
+}
+```
+
+Validation:
+- `name`: required, 1-100 chars, must not conflict with system default names
+
+Success `201`:
+
+```json
+{
+  "success": true,
+  "category": {
+    "id": "67f01a7ec8d4f22c9768f700",
+    "name": "Side Projects",
+    "ownerId": 1,
+    "isDefault": false,
+    "createdAt": "2026-04-02T10:00:00.000Z",
+    "updatedAt": "2026-04-02T10:00:00.000Z"
+  }
+}
+```
+
+Possible errors:
+- `400` name conflicts with system default
+- `400` validation failed
+
+### GET /categories
+List all categories available to the current user (system defaults + user-created).
+
+Success `200`:
+
+```json
+{
+  "success": true,
+  "categories": [
+    { "id": "...", "name": "Work", "ownerId": null, "isDefault": true, ... },
+    { "id": "...", "name": "Personal", "ownerId": null, "isDefault": true, ... },
+    { "id": "...", "name": "Urgent", "ownerId": null, "isDefault": true, ... },
+    { "id": "...", "name": "Side Projects", "ownerId": 1, "isDefault": false, ... }
+  ]
+}
+```
+
+### PATCH /categories/:id
+Rename a user-created category. System defaults cannot be modified.
+
+Path params:
+- `id`: 24-char Mongo ObjectId
+
+Request body:
+
+```json
+{
+  "name": "Side Hustles"
+}
+```
+
+**Side-effects:**
+- Updates the `category` field on all of the user's tasks that referenced the old name.
+
+Success `200`:
+
+```json
+{
+  "success": true,
+  "category": { "id": "...", "name": "Side Hustles", ... }
+}
+```
+
+Possible errors:
+- `403` cannot modify system default categories
+- `404` category not found
+
+### DELETE /categories/:id
+Delete a user-created category. System defaults cannot be deleted.
+
+Path params:
+- `id`: 24-char Mongo ObjectId
+
+**Side-effects:**
+- Sets `category` to `null` on all of the user's tasks that referenced this category.
+
+Success `200`:
+
+```json
+{
+  "success": true,
+  "message": "Category deleted successfully"
+}
+```
+
+Possible errors:
+- `403` cannot delete system default categories
+- `404` category not found
+
+---
+
+## 3. Real-Time Reminders (BullMQ)
+
+### How It Works
+1. When a task is created/updated with a `dueDate`, a **delayed BullMQ job** is enqueued.
+2. The job fires **1 hour before** `dueDate`. If the due date is already within 1 hour (or in the past), the job fires immediately.
+3. On trigger, the reminder is:
+   - **Logged to console**: `[REMINDER] ⏰ Task "title" (ID: ...) is due in ~1 hour!`
+   - **POSTed to `REMINDER_WEBHOOK_URL`** (if configured) with payload: `{ taskId, title, dueDate, ownerId, triggeredAt }`
+4. If a task is **updated with a new `dueDate`**, the old reminder is cancelled and a new one is scheduled.
+5. If a task is **marked completed** or **deleted**, its reminder is cancelled.
+6. On **server restart**, all pending tasks with future due dates are re-checked, and any missing reminder jobs are re-scheduled.
+
+### Architecture
+- **Queue**: `task-reminders` (BullMQ / Redis)
+- **Job ID**: `reminder:<taskId>` (deterministic, allows easy cancel/replace)
+- **Worker concurrency**: 5
+
+---
+
+## 4. Completion Webhook (External Service Integration)
+
+### How It Works
+1. When a task's status changes to `completed`, a POST request is sent to `WEBHOOK_URL` (if configured).
+2. **Payload**:
+   ```json
+   {
+     "taskId": "67f01a7ec8d4f22c9768f6f6",
+     "title": "Finish assignment",
+     "completedAt": "2026-04-02T12:00:00.000Z",
+     "userId": 1
+   }
+   ```
+3. **Retry logic**: 3 attempts with exponential backoff (1s → 2s → 4s).
+4. Success/failure is logged to console.
+
+### Testing
+Set `WEBHOOK_URL` in `.env` to a [webhook.site](https://webhook.site) URL to observe incoming payloads.
+
+---
+
+## 5. Quick Curl Examples
 
 Register:
 
@@ -415,43 +620,112 @@ curl -X POST http://localhost:5000/api/v1/auth/login \
   -d '{"email":"user@example.com","password":"password123"}'
 ```
 
-Create task (Bearer token):
+Create category:
+
+```bash
+curl -X POST http://localhost:5000/api/v1/categories \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Side Projects"}'
+```
+
+List categories:
+
+```bash
+curl http://localhost:5000/api/v1/categories \
+  -H "Authorization: Bearer <jwt>"
+```
+
+Create task with category & tags:
 
 ```bash
 curl -X POST http://localhost:5000/api/v1/tasks \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
-  -d '{"title":"My task","description":"Demo"}'
+  -d '{"title":"My task","description":"Demo","category":"Work","tags":["High Priority","Client A"],"dueDate":"2026-12-31T00:00:00.000Z"}'
 ```
 
-Patch task:
+Filter tasks by category:
+
+```bash
+curl "http://localhost:5000/api/v1/tasks?category=Work" \
+  -H "Authorization: Bearer <jwt>"
+```
+
+Filter tasks by tags:
+
+```bash
+curl "http://localhost:5000/api/v1/tasks?tags=High Priority,Client A" \
+  -H "Authorization: Bearer <jwt>"
+```
+
+Filter tasks by category + tags:
+
+```bash
+curl "http://localhost:5000/api/v1/tasks?category=Work&tags=High Priority" \
+  -H "Authorization: Bearer <jwt>"
+```
+
+Complete a task (triggers webhook):
 
 ```bash
 curl -X PATCH http://localhost:5000/api/v1/tasks/<taskId> \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
-  -d '{"title":"Updated title","description":"Updated description"}'
+  -d '{"status":"completed"}'
 ```
 
-## 4. Project Structure
+---
+
+## 6. Project Structure
 
 ```text
 assignment/
+  docker-compose.yml        # Redis for BullMQ
   backend/
-    assignment-api.postman_collection.json
+    .env
     server.js
+    package.json
+    assignment-api.postman_collection.json
     controllers/
+      authController.js
+      taskController.js
+      categoryController.js
     routes/
+      auth.js
+      tasks.js
+      categories.js
     models/
+      Task.js               # category, tags fields
+      Category.js
+    services/
+      reminderQueue.js       # BullMQ queue + worker
+      webhookService.js      # completion webhook + retry
     validators/
+      authValidators.js
+      taskValidators.js
+      categoryValidators.js
     repositories/
+      userRepository.js
+    middleware/
+      auth.js
+      validate.js
     db/
+      postgres.js
+    utils/
+      appError.js
+      asyncHandler.js
+      errorHandler.js
   frontend/
     src/
     vite.config.js
 ```
 
-## 5. Notes
+## 7. Notes
 - Users are stored in PostgreSQL.
 - Tasks are stored in MongoDB and linked to users via numeric `ownerId`.
+- Categories are stored in MongoDB. Defaults (Work, Personal, Urgent) are seeded on startup.
 - Access control is owner-based: another user receives `404 Task not found` on task read/update/delete.
+- BullMQ requires Redis. Use `docker compose up -d` to start Redis before the backend.
+- Reminders are re-hydrated on server restart — no lost reminders after reboot.
+- Completion webhooks are fire-and-forget with retry logic and do not block the API response.

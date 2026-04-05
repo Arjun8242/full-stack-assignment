@@ -27,6 +27,15 @@ const taskSchema = new mongoose.Schema(
       type: String,
       enum: ['pending', 'completed'],
       default: 'pending'
+    },
+    category: {
+      type: String,
+      default: null,
+      trim: true
+    },
+    tags: {
+      type: [String],
+      default: []
     }
   },
   {

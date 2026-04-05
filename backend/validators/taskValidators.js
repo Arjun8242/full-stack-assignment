@@ -26,7 +26,16 @@ export const createTaskSchema = Joi.object({
   }),
   status: Joi.string().valid('pending', 'completed').optional().messages({
     'any.only': 'Status must be pending or completed'
-  })
+  }),
+  category: Joi.string().trim().max(100).optional().allow(null).messages({
+    'string.max': 'Category must be at most 100 characters'
+  }),
+  tags: Joi.array()
+    .items(Joi.string().trim().max(100))
+    .optional()
+    .messages({
+      'array.base': 'Tags must be an array of strings'
+    })
 });
 
 export const updateTaskSchema = Joi.object({
@@ -44,9 +53,27 @@ export const updateTaskSchema = Joi.object({
   }),
   status: Joi.string().valid('pending', 'completed').messages({
     'any.only': 'Status must be pending or completed'
-  })
+  }),
+  category: Joi.string().trim().max(100).allow(null).messages({
+    'string.max': 'Category must be at most 100 characters'
+  }),
+  tags: Joi.array()
+    .items(Joi.string().trim().max(100))
+    .messages({
+      'array.base': 'Tags must be an array of strings'
+    })
 })
   .min(1)
   .messages({
     'object.min': 'At least one field must be provided for update'
   });
+
+export const taskFilterQuerySchema = Joi.object({
+  category: Joi.string().trim().max(100).optional().allow('', null),
+  tags: Joi.alternatives()
+    .try(
+      Joi.array().items(Joi.string().trim()),
+      Joi.string().trim()
+    )
+    .optional()
+});
