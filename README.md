@@ -7,6 +7,12 @@ Full-stack task management application with:
 - Task store: MongoDB
 - Message Queue: BullMQ (Redis)
 
+## Complete Project Documentary
+
+For a full file-by-file code walkthrough and API execution order, see:
+
+- [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md)
+
 ## 1. Local Setup And Run
 
 ## Prerequisites
@@ -126,6 +132,7 @@ Collection variables:
 - `token` (auto-filled by Login test)
 - `taskId` (auto-filled by Create Task test)
 - `categoryId` (auto-filled by Create Category test)
+- `tagId` (auto-filled by Create Tag test)
 
 ---
 
@@ -562,6 +569,107 @@ Possible errors:
 
 ---
 
+## Tag Endpoints
+All tag endpoints require auth.
+
+Tag schema:
+- `id` (string) — Mongo ObjectId
+- `name` (string, required, max 100)
+- `ownerId` (number)
+- `createdAt`, `updatedAt`
+
+Tags are free-form text and can still be sent directly in task create/update payloads.
+The dedicated endpoints below provide full CRUD management for reusable user tags.
+
+### POST /tags
+Create a custom tag for the current user.
+
+Request body:
+
+```json
+{
+  "name": "Client A"
+}
+```
+
+Success `201`:
+
+```json
+{
+  "success": true,
+  "tag": {
+    "id": "67f01a7ec8d4f22c9768f733",
+    "name": "Client A",
+    "ownerId": 1,
+    "createdAt": "2026-04-02T10:00:00.000Z",
+    "updatedAt": "2026-04-02T10:00:00.000Z"
+  }
+}
+```
+
+Possible errors:
+- `400` duplicate tag name for same user
+
+### GET /tags
+List all tags for current user.
+
+Success `200`:
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "tags": [
+    { "id": "...", "name": "Client A", "ownerId": 1, "createdAt": "...", "updatedAt": "..." },
+    { "id": "...", "name": "High Priority", "ownerId": 1, "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+### PATCH /tags/:id
+Rename a tag.
+
+Path params:
+- `id`: 24-char Mongo ObjectId
+
+Request body:
+
+```json
+{
+  "name": "Client B"
+}
+```
+
+**Side-effects:**
+- Renames the tag in all of the current user's tasks.
+
+Possible errors:
+- `400` duplicate tag name for same user
+- `404` tag not found
+
+### DELETE /tags/:id
+Delete a tag.
+
+Path params:
+- `id`: 24-char Mongo ObjectId
+
+**Side-effects:**
+- Removes that tag from all of the current user's tasks.
+
+Success `200`:
+
+```json
+{
+  "success": true,
+  "message": "Tag deleted successfully"
+}
+```
+
+Possible errors:
+- `404` tag not found
+
+---
+
 ## 3. Real-Time Reminders (BullMQ)
 
 ### How It Works
@@ -576,7 +684,7 @@ Possible errors:
 
 ### Architecture
 - **Queue**: `task-reminders` (BullMQ / Redis)
-- **Job ID**: `reminder:<taskId>` (deterministic, allows easy cancel/replace)
+- **Job ID**: `reminder-<taskId>` (deterministic, allows easy cancel/replace)
 - **Worker concurrency**: 5
 
 ---
@@ -636,6 +744,38 @@ curl http://localhost:5000/api/v1/categories \
   -H "Authorization: Bearer <jwt>"
 ```
 
+Create tag:
+
+```bash
+curl -X POST http://localhost:5000/api/v1/tags \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Client A"}'
+```
+
+List tags:
+
+```bash
+curl http://localhost:5000/api/v1/tags \
+  -H "Authorization: Bearer <jwt>"
+```
+
+Rename tag:
+
+```bash
+curl -X PATCH http://localhost:5000/api/v1/tags/<tagId> \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Client B"}'
+```
+
+Delete tag:
+
+```bash
+curl -X DELETE http://localhost:5000/api/v1/tags/<tagId> \
+  -H "Authorization: Bearer <jwt>"
+```
+
 Create task with category & tags:
 
 ```bash
@@ -691,13 +831,16 @@ assignment/
       authController.js
       taskController.js
       categoryController.js
+      tagController.js
     routes/
       auth.js
       tasks.js
       categories.js
+      tags.js
     models/
       Task.js               # category, tags fields
       Category.js
+      Tag.js
     services/
       reminderQueue.js       # BullMQ queue + worker
       webhookService.js      # completion webhook + retry
@@ -705,6 +848,7 @@ assignment/
       authValidators.js
       taskValidators.js
       categoryValidators.js
+      tagValidators.js
     repositories/
       userRepository.js
     middleware/

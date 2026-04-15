@@ -7,6 +7,7 @@ import {
   rescheduleReminder
 } from '../services/reminderQueue.js';
 import { sendCompletionWebhook } from '../services/webhookService.js';
+import { ensureTagsExist } from './tagController.js';
 
 const allowedUpdates = ['title', 'description', 'dueDate', 'status', 'category', 'tags'];
 
@@ -23,8 +24,14 @@ export const createTask = asyncHandler(async (req, res) => {
     tags: req.body.tags ?? []
   });
 
-  // Schedule a BullMQ reminder if dueDate is provided
-  if (task.dueDate) {
+  // Keep tag catalog synchronized with free-form task tags.
+  await ensureTagsExist(req.user.id, task.tags);
+
+  // Fire completion webhook if task is created as completed.
+  if (task.status === 'completed') {
+    sendCompletionWebhook(task); // fire-and-forget with retry
+  } else if (task.dueDate) {
+    // Schedule a reminder for non-completed tasks only.
     await scheduleReminder(task);
   }
 
@@ -110,6 +117,10 @@ export const updateTask = asyncHandler(async (req, res) => {
   } else if (dueDateChanged) {
     // dueDate changed (or cleared) — reschedule / cancel reminder
     await rescheduleReminder(task);
+  }
+
+  if (updates.tags !== undefined) {
+    await ensureTagsExist(req.user.id, task.tags);
   }
 
   res.json({ success: true, task });

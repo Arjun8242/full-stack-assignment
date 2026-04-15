@@ -10,6 +10,7 @@ import {
 } from '../controllers/taskController.js';
 import {
   createTaskSchema,
+  taskFilterQuerySchema,
   taskIdParamSchema,
   updateTaskSchema
 } from '../validators/taskValidators.js';
@@ -19,7 +20,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.post('/', validate(createTaskSchema), createTask);
-router.get('/', getTasks);
+router.get('/', validate(taskFilterQuerySchema, 'query'), getTasks);
 router.get('/:id', validate(taskIdParamSchema, 'params'), getTaskById);
 router.patch('/:id', validate(taskIdParamSchema, 'params'), validate(updateTaskSchema), updateTask);
 router.delete('/:id', validate(taskIdParamSchema, 'params'), deleteTask);

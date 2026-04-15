@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import taskRoutes from './routes/tasks.js';
 import categoryRoutes from './routes/categories.js';
+import tagRoutes from './routes/tags.js';
 import { errorHandler, notFound } from './utils/errorHandler.js';
 import { connectPostgres, closePostgres } from './db/postgres.js';
 import { initializeUsersTable } from './repositories/userRepository.js';
@@ -27,6 +28,7 @@ app.use(cookieParser());
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/tasks', taskRoutes);
 app.use('/api/v1/categories', categoryRoutes);
+app.use('/api/v1/tags', tagRoutes);
 
 // 404 handler
 app.use(notFound);
